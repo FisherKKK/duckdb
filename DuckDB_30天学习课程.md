@@ -1895,44 +1895,1381 @@ LogicalLimit
 
 ---
 
-**(由于篇幅限制，课程内容将继续，包含Day 10-30的详细内容...)**
+## Day 10: 物理计划 - PhysicalOperator
+
+**学习目标：** 理解逻辑计划如何转换为物理执行计划
+
+### 10.1 PhysicalOperator基类
+
+```cpp
+// src/include/duckdb/execution/physical_operator.hpp
+
+class PhysicalOperator {
+public:
+    PhysicalOperatorType type;           // 算子类型
+    vector<unique_ptr<PhysicalOperator>> children;  // 子算子
+    idx_t estimated_cardinality;         // 估计基数
+    vector<LogicalType> types;           // 输出类型
+
+    // 执行接口
+    unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context);
+    unique_ptr<GlobalOperatorState> GetGlobalState(ClientContext &context);
+
+    // Push-based执行
+    bool Execute(ExecutionContext &context, DataChunk &input, DataChunk &output);
+    OperatorResultType Execute(ExecutionContext &context,
+                               DataChunk &input,
+                               GlobalOperatorState &gstate,
+                               OperatorState &state);
+
+    // 算子类型判断
+    bool IsSource() const;      // 数据源算子
+    bool IsSink() const;        // 数据汇算子
+    bool IsParallel() const;    // 并行算子
+};
+
+enum class PhysicalOperatorType : uint8_t {
+    PHYSICAL_TABLE_SCAN,           // 表扫描
+    PHYSICAL_FILTER,               // 过滤
+    PHYSICAL_PROJECTION,           // 投影
+    PHYSICAL_HASH_JOIN,            // Hash Join
+    PHYSICAL_ORDER_BY,             // 排序
+    PHYSICAL_AGGREGATE,            // 聚合
+    PHYSICAL_LIMIT,                // Limit
+    // ... 更多类型
+};
+```
+
+### 10.2 逻辑到物理的转换
+
+#### 转换示例：SELECT * FROM t WHERE x > 10
+
+```
+逻辑计划：
+LogicalFilter
+└── LogicalGet
+
+物理计划（经过优化器）：
+PhysicalTableScan(t, filter: x > 10)
+```
+
+Filter被下推到TableScan中，避免额外的Filter算子。
+
+### 10.3 PhysicalPlanGenerator
+
+```cpp
+// src/execution/physical_plan_generator.cpp
+
+class PhysicalPlanGenerator {
+public:
+    unique_ptr<PhysicalOperator> CreatePlan(LogicalOperator &op) {
+        switch (op.type) {
+        case LogicalOperatorType::LOGICAL_GET:
+            return CreatePlan((LogicalGet &)op);
+        case LogicalOperatorType::LOGICAL_FILTER:
+            return CreatePlan((LogicalFilter &)op);
+        case LogicalOperatorType::LOGICAL_PROJECTION:
+            return CreatePlan((LogicalProjection &)op);
+        case LogicalOperatorType::LOGICAL_AGGREGATE:
+            return CreatePlan((LogicalAggregate &)op);
+        case LogicalOperatorType::LOGICAL_COMPARISON_JOIN:
+            return CreatePlan((LogicalComparisonJoin &)op);
+        // ...
+        }
+    }
+
+private:
+    unique_ptr<PhysicalOperator> CreatePlan(LogicalGet &op) {
+        // 创建物理表扫描
+        auto table_scan = make_unique<PhysicalTableScan>(
+            op.table,
+            op.column_ids,
+            op.return_types
+        );
+
+        // 如果有表过滤器，可以下推
+        if (op.table_filters) {
+            table_scan->table_filters = std::move(op.table_filters);
+        }
+
+        return table_scan;
+    }
+
+    unique_ptr<PhysicalOperator> CreatePlan(LogicalFilter &op) {
+        // 先创建子节点的物理计划
+        auto child_plan = CreatePlan(*op.children[0]);
+
+        // 尝试下推Filter
+        if (CanPushdown(op, *child_plan)) {
+            // Filter下推成功
+            return child_plan;
+        }
+
+        // 创建物理Filter算子
+        return make_unique<PhysicalFilter>(
+            std::move(op.expressions),
+            std::move(child_plan)
+        );
+    }
+};
+```
+
+### 10.4 执行状态管理
+
+```cpp
+// 算子状态（每个线程一份）
+class OperatorState {
+public:
+    virtual ~OperatorState() = default;
+};
+
+// 全局状态（所有线程共享）
+class GlobalOperatorState {
+public:
+    virtual ~GlobalOperatorState() = default;
+};
+
+// 表扫描状态
+class TableScanState : public OperatorState {
+public:
+    idx_t current_row_group;       // 当前RowGroup
+    idx_t current_row;             // 当前行
+    vector<column_t> scanned_columns;  // 扫描的列
+};
+
+// 聚合全局状态
+class HashAggregateGlobalState : public GlobalOperatorState {
+public:
+    unique_ptr<HashAggregateHashTable> hash_table;  // 全局哈希表
+    mutex lock;  // 保护哈希表
+};
+```
+
+### 10.5 Pipeline执行模型
+
+```cpp
+// Pipeline结构
+struct Pipeline {
+    PhysicalOperator *source;           // 源算子
+    PhysicalOperator *sink;             // 汇算子
+    vector<PhysicalOperator*> operators;  // 中间算子
+
+    void Execute(ClientContext &context) {
+        // 初始化状态
+        auto global_state = sink->GetGlobalState(context);
+        auto state = sink->GetOperatorState(context);
+
+        DataChunk input, output;
+
+        // 从Source拉取数据，通过Pipeline推送到Sink
+        while (source->Execute(context, input, output)) {
+            // 依次通过中间算子
+            for (auto op : operators) {
+                op->Execute(context, input, output, *state);
+                input = std::move(output);
+            }
+
+            // 推送到Sink
+            sink->Execute(context, input, *global_state, *state);
+        }
+    }
+};
+```
+
+**实践任务：**
+1. 阅读 `src/execution/physical_operator.hpp`
+2. 使用EXPLAIN查看查询的物理计划
+3. 跟踪一个简单查询的物理计划生成过程
 
 ---
 
-## 课程大纲（Day 10-30）
+## Day 11: 算子实现 - TableScan和Filter
 
-### 第二周（续）
+**学习目标：** 深入理解表扫描和过滤算子的实现
 
-**Day 10:** 物理计划 - PhysicalOperator
-**Day 11:** 算子实现 - TableScan和Filter
-**Day 12:** 算子实现 - Hash Join
-**Day 13:** 算子实现 - Aggregation
-**Day 14:** 第二周总结 - 实现基本查询执行
+### 11.1 PhysicalTableScan实现
 
-### 第三周：优化器与性能
+```cpp
+// src/execution/operator/scan/physical_table_scan.cpp
 
-**Day 15:** 优化器架构与规则系统
-**Day 16:** Filter Pushdown优化
-**Day 17:** Join Order优化
-**Day 18:** 统计信息与基数估计
-**Day 19:** 表达式优化与常量折叠
-**Day 20:** 向量化执行深度解析
-**Day 21:** 第三周总结 - 实现优化规则
+class PhysicalTableScan : public PhysicalOperator {
+public:
+    DataTable &table;               // 要扫描的表
+    vector<idx_t> column_ids;       // 要读取的列
+    vector<LogicalType> types;      // 输出类型
 
-### 第四周：存储与事务
+    TableFilterSet *table_filters;  // 表过滤器（下推的WHERE）
 
-**Day 22:** 存储引擎架构
-**Day 23:** RowGroup与列存储
-**Day 24:** 压缩算法
-**Day 25:** MVCC事务管理
-**Day 26:** WAL与持久化
-**Day 27:** Buffer管理与缓存策略
-**Day 28:** 第四周总结 - 实现简单存储引擎
+public:
+    // 初始化扫描状态
+    unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) override {
+        return make_unique<TableScanState>();
+    }
 
-### 最后两天
+    // 执行扫描
+    OperatorResultType Execute(ExecutionContext &context,
+                               DataChunk &input,
+                               GlobalOperatorState &gstate,
+                               OperatorState &state) override {
+        auto &scan_state = (TableScanState &)state;
 
-**Day 29:** 扩展系统与函数注册
-**Day 30:** 总结与构建Mini-DuckDB项目
+        // 初始化输出chunk
+        DataChunk output;
+        output.Initialize(Allocator::DefaultAllocator(), types);
+
+        // 扫描RowGroups
+        while (output.size() < STANDARD_VECTOR_SIZE) {
+            // 检查是否需要切换到下一个RowGroup
+            if (scan_state.current_row >= scan_state.row_group_count) {
+                if (!MoveToNextRowGroup(scan_state)) {
+                    break;  // 没有更多数据
+                }
+            }
+
+            // 读取当前RowGroup
+            idx_t remaining = STANDARD_VECTOR_SIZE - output.size();
+            idx_t to_scan = MinValue(remaining,
+                                     scan_state.row_group_count - scan_state.current_row);
+
+            // 扫描数据
+            ScanRowGroup(scan_state, output, to_scan);
+
+            scan_state.current_row += to_scan;
+        }
+
+        // 如果没有任何数据，返回NEED_MORE_INPUT
+        if (output.size() == 0) {
+            return OperatorResultType::NEED_MORE_INPUT;
+        }
+
+        return OperatorResultType::HAVE_MORE_OUTPUT;
+    }
+
+private:
+    bool MoveToNextRowGroup(TableScanState &state) {
+        state.current_row_group++;
+        if (state.current_row_group >= table.row_groups.size()) {
+            return false;
+        }
+
+        // 获取RowGroup
+        auto &row_group = table.row_groups[state.current_row_group];
+        state.row_group_count = row_group->start + row_group->count;
+        state.current_row = row_group->start;
+
+        return true;
+    }
+
+    void ScanRowGroup(TableScanState &state, DataChunk &output, idx_t count) {
+        auto &row_group = table.row_groups[state.current_row_group];
+
+        // 逐列读取
+        for (size_t col_idx = 0; col_idx < column_ids.size(); col_idx++) {
+            idx_t col_id = column_ids[col_idx];
+            auto &column = row_group->columns[col_id];
+
+            // 读取数据到输出向量
+            Vector &out_vec = output.data[col_idx];
+            column->Scan(state.current_row, count, out_vec);
+        }
+
+        output.SetCardinality(output.size() + count);
+    }
+};
+```
+
+### 11.2 PhysicalFilter实现
+
+```cpp
+// src/execution/operator/filter/physical_filter.cpp
+
+class PhysicalFilter : public PhysicalOperator {
+public:
+    vector<unique_ptr<Expression>> expressions;  // WHERE条件
+    unique_ptr<PhysicalOperator> child;          // 子算子
+
+public:
+    unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) override {
+        auto child_state = child->GetOperatorState(context);
+        return make_unique<FilterState>(std::move(child_state), expressions);
+    }
+
+    OperatorResultType Execute(ExecutionContext &context,
+                               DataChunk &input,
+                               GlobalOperatorState &gstate,
+                               OperatorState &state) override {
+        auto &filter_state = (FilterState &)state;
+
+        // 从子节点获取数据
+        DataChunk child_chunk;
+        auto result = child->Execute(context, input, gstate, *filter_state.child_state);
+
+        if (result == OperatorResultType::NEED_MORE_INPUT) {
+            return OperatorResultType::NEED_MORE_INPUT;
+        }
+
+        // 执行过滤条件
+        SelectionVector sel(STANDARD_VECTOR_SIZE);
+        idx_t approved_count = 0;
+
+        for (auto &expr : expressions) {
+            // 在chunk上执行表达式
+            Vector result_vec(LogicalType::BOOLEAN);
+            ExpressionExecutor::Execute(expr, child_chunk, result_vec);
+
+            // 应用选择向量
+            auto result_data = FlatVector::GetData<bool>(result_vec);
+            auto &validity = result_vec.validity;
+
+            for (idx_t i = 0; i < child_chunk.size(); i++) {
+                if (validity.RowIsValid(i) && result_data[i]) {
+                    sel.set_index(approved_count++, i);
+                }
+            }
+        }
+
+        // 构建输出chunk（使用SelectionVector切片）
+        input.Reference(child_chunk);
+        input.Slice(input, sel, approved_count);
+        input.SetCardinality(approved_count);
+
+        return approved_count > 0 ?
+            OperatorResultType::HAVE_MORE_OUTPUT :
+            OperatorResultType::NEED_MORE_INPUT;
+    }
+};
+```
+
+### 11.3 自适应过滤器
+
+```cpp
+// src/execution/adaptive_filter.cpp
+
+// 多个条件时，动态调整过滤顺序以提高性能
+
+class AdaptiveFilter {
+private:
+    vector<unique_ptr<Expression>> filters;
+    vector<idx_t> order;  // 过滤器执行顺序
+    vector<idx_t> execution_count;  // 执行次数统计
+    vector<idx_t> selectivity;  // 选择性统计
+
+public:
+    void UpdateStatistics(idx_t filter_idx, idx_t input_count, idx_t output_count) {
+        execution_count[filter_idx]++;
+        double sel = (double)output_count / input_count;
+        // 更新平均选择性
+        selectivity[filter_idx] =
+            (selectivity[filter_idx] * (execution_count[filter_idx] - 1) + sel) /
+            execution_count[filter_idx];
+    }
+
+    void ReorderFilters() {
+        // 按选择性排序（最严格的过滤器先执行）
+        sort(order.begin(), order.end(),
+             [this](idx_t a, idx_t b) {
+                 return selectivity[a] < selectivity[b];
+             });
+    }
+};
+```
+
+**实践任务：**
+1. 阅读 `src/execution/operator/scan/physical_table_scan.cpp`
+2. 阅读 `src/execution/operator/filter/physical_filter.cpp`
+3. 实现一个简单的TableScan算子
+4. 实现一个Filter算子，支持AND和OR条件
+
+---
+
+## Day 12: 算子实现 - Hash Join
+
+**学习目标：** 理解Hash Join的实现和优化
+
+### 12.1 Hash Join概述
+
+Hash Join是处理等值Join最常用的算法，特别是当数据量较大无法放入内存时。
+
+```
+Hash Join三个阶段：
+1. Build阶段：构建probe表（通常是较小的表）
+2. Probe阶段：探测匹配
+3. 收集阶段：输出结果
+```
+
+### 12.2 PhysicalHashJoin实现
+
+```cpp
+// src/execution/operator/join/physical_hash_join.cpp
+
+class PhysicalHashJoin : public PhysicalOperator {
+public:
+    JoinType join_type;              // INNER, LEFT, RIGHT, FULL
+    vector<JoinCondition> conditions;  // Join条件
+    unique_ptr<PhysicalOperator> left;
+    unique_ptr<PhysicalOperator> right;
+
+public:
+    unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) override {
+        auto left_state = left->GetOperatorState(context);
+        auto right_state = right->GetOperatorState(context);
+        return make_unique<HashJoinState>(
+            std::move(left_state),
+            std::move(right_state),
+            conditions
+        );
+    }
+
+    OperatorResultType Execute(ExecutionContext &context,
+                               DataChunk &input,
+                               GlobalOperatorState &gstate,
+                               OperatorState &state) override {
+        auto &hash_join_state = (HashJoinState &)state;
+
+        // 阶段1: Build哈希表
+        if (!hash_join_state.build_complete) {
+            BuildHashTable(context, hash_join_state);
+            hash_join_state.build_complete = true;
+        }
+
+        // 阶段2: Probe哈希表
+        DataChunk probe_chunk;
+        while (right->Execute(context, input, gstate, *hash_join_state.right_state)) {
+            // 探测哈希表
+            ProbeHashTable(input, hash_join_state, probe_chunk);
+
+            if (probe_chunk.size() > 0) {
+                return OperatorResultType::HAVE_MORE_OUTPUT;
+            }
+        }
+
+        return OperatorResultType::NEED_MORE_INPUT;
+    }
+
+private:
+    void BuildHashTable(ExecutionContext &context, HashJoinState &state) {
+        DataChunk build_chunk;
+        auto &global_state = (HashJoinGlobalState &)gstate;
+
+        // 从左表读取所有数据
+        while (left->Execute(context, build_chunk, gstate, *state.left_state)) {
+            // 计算Join key的哈希
+            Vector hashes(LogicalType::HASH);
+            VectorOperations::Hash(state.build_keys, hashes);
+
+            // 插入哈希表
+            for (idx_t i = 0; i < build_chunk.size(); i++) {
+                auto hash = hashes.GetValue<hash_t>(i);
+                global_state.hash_table->Insert(hash, build_chunk, i);
+            }
+        }
+    }
+
+    void ProbeHashTable(DataChunk &probe, HashJoinState &state, DataChunk &result) {
+        // 计算probe key的哈希
+        Vector hashes(LogicalType::HASH);
+        VectorOperations::Hash(state.probe_keys, hashes);
+
+        // 在哈希表中查找匹配
+        for (idx_t i = 0; i < probe.size(); i++) {
+            auto hash = hashes.GetValue<hash_t>(i);
+
+            // 查找哈希表
+            auto entries = state.hash_table->Find(hash);
+
+            // 检查Join条件
+            for (auto entry : entries) {
+                if (CheckJoinCondition(probe, i, entry)) {
+                    // 找到匹配，构造输出
+                    ConstructOutput(probe, i, entry, result);
+                }
+            }
+        }
+    }
+};
+```
+
+### 12.3 完善HashJoin - 多线程支持
+
+```cpp
+// 并行Hash Join
+
+class ParallelHashJoinState : public GlobalOperatorState {
+public:
+    // 每个线程的本地哈希表
+    vector<unique_ptr<HashAggregateHashTable>> local_hash_tables;
+
+    // 全局哈希表（合并后）
+    unique_ptr<HashAggregateHashTable> global_hash_table;
+
+    // Radix分区（用于超大数据集）
+    vector<unique_ptr<RadixPartition>> partitions;
+};
+
+void ParallelHashJoin::Execute(ExecutionContext &context,
+                                DataChunk &input,
+                                GlobalOperatorState &gstate,
+                                OperatorState &state) {
+    auto &parallel_state = (ParallelHashJoinState &)gstate;
+
+    // 第一步：多线程构建本地哈希表
+    if (!parallel_state.local_build_complete) {
+        ParallelBuild(context, parallel_state);
+        parallel_state.local_build_complete = true;
+    }
+
+    // 第二步：合并本地哈希表
+    if (!parallel_state.global_build_complete) {
+        MergeLocalHashTables(parallel_state);
+        parallel_state.global_build_complete = true;
+    }
+
+    // 第三步：Probe全局哈希表
+    ProbeHashTable(input, parallel_state);
+}
+```
+
+### 12.4 Join类型实现
+
+```cpp
+// INNER JOIN: 只输出匹配的行
+// LEFT JOIN: 左表所有行 + 匹配的右表行，不匹配用NULL填充
+// RIGHT JOIN: 右表所有行 + 匹配的左表行
+// FULL OUTER JOIN: 两表所有行
+
+void HandleLeftJoin(DataChunk &left, idx_t left_idx,
+                   DataChunk &result) {
+    // 左表的行没有找到匹配，用NULL填充右表
+    for (size_t col_idx = 0; col_idx < left.ColumnCount(); col_idx++) {
+        result.data[col_idx].SetValue(result.size(),
+                                       left.GetValue(col_idx, left_idx));
+    }
+
+    // 右表列设为NULL
+    for (size_t col_idx = left.ColumnCount(); col_idx < result.ColumnCount(); col_idx++) {
+        result.data[col_idx].SetNull(result.size());
+    }
+
+    result.SetCardinality(result.size() + 1);
+}
+
+void HandleFullJoin(DataChunk &left, DataChunk &right,
+                   HashSet<idx_t> &matched_left,
+                   HashSet<idx_t> &matched_right,
+                   DataChunk &result) {
+    // 处理左表中未匹配的行
+    for (idx_t i = 0; i < left.size(); i++) {
+        if (matched_left.find(i) == matched_left.end()) {
+            HandleLeftJoin(left, i, result);
+        }
+    }
+
+    // 处理右表中未匹配的行
+    for (idx_t i = 0; i < right.size(); i++) {
+        if (matched_right.find(i) == matched_right.end()) {
+            HandleRightJoin(right, i, result);
+        }
+    }
+}
+```
+
+**实践任务：**
+1. 阅读 `src/execution/operator/join/physical_hash_join.cpp`
+2. 实现一个简单的Hash Join（仅支持INNER JOIN）
+3. 添加LEFT JOIN支持
+4. 思考：如何处理超大数据集（无法放入内存）？
+
+---
+
+## Day 13: 算子实现 - Aggregation
+
+**学习目标：** 理解聚合算子的实现，包括GROUP BY和聚合函数
+
+### 13.1 聚合类型
+
+```sql
+-- 无GROUP BY（全局聚合）
+SELECT COUNT(*), SUM(amount) FROM orders;
+
+-- 有GROUP BY（分组聚合）
+SELECT customer_id, COUNT(*), SUM(amount)
+FROM orders
+GROUP BY customer_id;
+
+-- 多个GROUP BY列
+SELECT customer_id, product_id, SUM(quantity)
+FROM orders
+GROUP BY customer_id, product_id;
+```
+
+### 13.2 PhysicalHashAggregate实现
+
+```cpp
+// src/execution/operator/aggregate/physical_hash_aggregate.cpp
+
+class PhysicalHashAggregate : public PhysicalOperator {
+public:
+    vector<unique_ptr<Expression>> groups;       // GROUP BY列
+    vector<unique_ptr<Expression>> aggregates;   // 聚合函数
+    vector<LogicalType> group_types;             // GROUP BY列类型
+    vector<LogicalType> aggregate_types;         // 聚合函数类型
+
+public:
+    unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) override {
+        return make_unique<HashAggregateState>(groups, aggregates);
+    }
+
+    OperatorResultType Execute(ExecutionContext &context,
+                               DataChunk &input,
+                               GlobalOperatorState &gstate,
+                               OperatorState &state) override {
+        auto &agg_state = (HashAggregateState &)state;
+        auto &global_state = (HashAggregateGlobalState &)gstate;
+
+        // 第一阶段：从输入聚合
+        DataChunk input_chunk;
+        while (child->Execute(context, input_chunk, gstate, *agg_state.child_state)) {
+            AggregateInput(input_chunk, agg_state);
+        }
+
+        // 第二阶段：扫描哈希表，输出结果
+        DataChunk result;
+        result.Initialize(Allocator::DefaultAllocator(),
+                        group_types + aggregate_types);
+
+        idx_t output_count = 0;
+        ScanHashTable(global_state.hash_table, result, output_count);
+
+        if (output_count == 0) {
+            return OperatorResultType::NEED_MORE_INPUT;
+        }
+
+        result.SetCardinality(output_count);
+        return OperatorResultType::HAVE_MORE_OUTPUT;
+    }
+
+private:
+    void AggregateInput(DataChunk &input, HashAggregateState &state) {
+        // 计算GROUP BY列的哈希
+        Vector group_hashes(LogicalType::HASH);
+        VectorOperations::Hash(input.data, group_hashes, input.size());
+
+        // 逐行聚合
+        for (idx_t i = 0; i < input.size(); i++) {
+            auto hash = group_hashes.GetValue<hash_t>(i);
+
+            // 在哈希表中查找/创建组
+            auto *group_state = state.hash_table->FindOrCreateGroup(hash);
+
+            // 更新聚合函数
+            for (size_t agg_idx = 0; agg_idx < aggregates.size(); agg_idx++) {
+                auto &aggregate = aggregates[agg_idx];
+                auto &agg_func = aggregate->function;
+
+                // 更新聚合状态
+                agg_func.update(input, i, group_state->aggregates[agg_idx]);
+            }
+        }
+    }
+
+    void ScanHashTable(HashAggregateHashTable *ht,
+                       DataChunk &result,
+                       idx_t &output_count) {
+        idx_t current_idx = 0;
+
+        for (auto &entry : *ht) {
+            if (current_idx >= STANDARD_VECTOR_SIZE) {
+                break;
+            }
+
+            // 输出GROUP BY列
+            for (size_t group_idx = 0; group_idx < groups.size(); group_idx++) {
+                result.data[group_idx].SetValue(current_idx,
+                                                  entry.group_values[group_idx]);
+            }
+
+            // 最终化聚合函数
+            for (size_t agg_idx = 0; agg_idx < aggregates.size(); agg_idx++) {
+                auto &aggregate = aggregates[agg_idx];
+                auto &agg_func = aggregate->function;
+
+                // 执行finalize
+                agg_func.finalize(entry.aggregates[agg_idx],
+                                  result.data[groups.size() + agg_idx],
+                                  current_idx);
+            }
+
+            current_idx++;
+        }
+    }
+};
+```
+
+### 13.3 常用聚合函数实现
+
+```cpp
+// COUNT函数
+struct CountAggregateState {
+    idx_t count;
+};
+
+void CountUpdate(Vector &input, idx_t count, CountAggregateState &state) {
+    // 计算非NULL值数量
+    idx_t non_null_count = 0;
+    auto &validity = input.validity;
+
+    for (idx_t i = 0; i < count; i++) {
+        if (validity.RowIsValid(i)) {
+            non_null_count++;
+        }
+    }
+
+    state.count += non_null_count;
+}
+
+void CountFinalize(CountAggregateState &state, Vector &result, idx_t index) {
+    result.SetValue(index, Value::BIGINT(state.count));
+}
+
+// SUM函数
+struct SumAggregateState {
+    double sum;
+    bool is_empty;
+};
+
+void SumUpdate(Vector &input, idx_t count, SumAggregateState &state) {
+    auto data = FlatVector::GetData<double>(input);
+    auto &validity = input.validity;
+
+    for (idx_t i = 0; i < count; i++) {
+        if (validity.RowIsValid(i)) {
+            state.sum += data[i];
+            state.is_empty = false;
+        }
+    }
+}
+
+// AVG函数
+struct AvgAggregateState {
+    double sum;
+    idx_t count;
+};
+
+void AvgUpdate(Vector &input, idx_t count, AvgAggregateState &state) {
+    auto data = FlatVector::GetData<double>(input);
+    auto &validity = input.validity;
+
+    for (idx_t i = 0; i < count; i++) {
+        if (validity.RowIsValid(i)) {
+            state.sum += data[i];
+            state.count++;
+        }
+    }
+}
+
+void AvgFinalize(AvgAggregateState &state, Vector &result, idx_t index) {
+    if (state.count == 0) {
+        result.SetNull(index);
+    } else {
+        result.SetValue(index, Value::DOUBLE(state.sum / state.count));
+    }
+}
+
+// MIN/MAX函数
+template <class T>
+struct MinMaxAggregateState {
+    T value;
+    bool is_empty;
+};
+
+template <class T>
+void MinUpdate(Vector &input, idx_t count, MinMaxAggregateState<T> &state) {
+    auto data = FlatVector::GetData<T>(input);
+    auto &validity = input.validity;
+
+    for (idx_t i = 0; i < count; i++) {
+        if (validity.RowIsValid(i)) {
+            if (state.is_empty || data[i] < state.value) {
+                state.value = data[i];
+                state.is_empty = false;
+            }
+        }
+    }
+}
+```
+
+### 13.4 两阶段聚合（并行优化）
+
+```cpp
+// 两阶段聚合：本地聚合 + 全局聚合
+// 适用于并行执行场景
+
+// 第一阶段：每个线程本地聚合
+class LocalAggregateState {
+public:
+    HashAggregateHashTable local_hash_table;
+};
+
+void ThreadLocalAggregation(DataChunk &input, LocalAggregateState &state) {
+    // 在本地哈希表中聚合
+    AggregateInput(input, state.local_hash_table);
+}
+
+// 第二阶段：合并本地聚合结果
+void MergeLocalAggregates(vector<LocalAggregateState*> &local_states,
+                          GlobalAggregateState &global_state) {
+    for (auto local_state : local_states) {
+        // 遍历本地哈希表
+        for (auto &entry : *local_state->local_hash_table) {
+            // 在全局哈希表中查找/创建组
+            auto *global_group = global_state.hash_table->FindOrCreateGroup(
+                entry.group_hash);
+
+            // 合并聚合状态
+            for (size_t agg_idx = 0; agg_idx < aggregates.size(); agg_idx++) {
+                aggregates[agg_idx]->function.combine(
+                    entry.aggregates[agg_idx],
+                    global_group->aggregates[agg_idx]
+                );
+            }
+        }
+    }
+}
+```
+
+**实践任务：**
+1. 阅读 `src/execution/operator/aggregate/physical_hash_aggregate.cpp`
+2. 实现COUNT和SUM聚合函数
+3. 添加对GROUP BY多个列的支持
+4. 实现两阶段聚合优化
+
+---
+
+## Day 14: 第二周总结 - 实现基本查询执行
+
+**学习目标：** 综合运用第二周知识，实现一个简单的查询执行引擎
+
+### 14.1 项目目标
+
+实现一个支持以下功能的查询引擎：
+- 表扫描（TableScan）
+- 过滤（Filter）
+- 投影（Projection）
+- 简单Join（Hash Join）
+- 基本聚合（COUNT, SUM）
+
+### 14.2 完整示例：实现简单查询引擎
+
+```cpp
+// simple_query_engine.hpp
+
+#pragma once
+#include "duckdb/common/types/data_chunk.hpp"
+#include "duckdb/common/types/value.hpp"
+#include "duckdb/planner/expression.hpp"
+#include <memory>
+#include <vector>
+#include <functional>
+
+namespace duckdb {
+
+// 简单的内存表
+class SimpleTable {
+public:
+    SimpleTable(vector<LogicalType> types_p, vector<string> names_p)
+        : types(std::move(types_p)), column_names(std::move(names_p)) {
+        // 创建第一个chunk
+        DataChunk chunk;
+        chunk.Initialize(Allocator::DefaultAllocator(), types);
+        chunks.push_back(std::move(chunk));
+    }
+
+    // 插入数据
+    void Insert(vector<Value> values) {
+        D_ASSERT(values.size() == types.size());
+
+        auto &current_chunk = chunks.back();
+
+        // 如果当前chunk已满，创建新chunk
+        if (current_chunk.size() >= STANDARD_VECTOR_SIZE) {
+            DataChunk new_chunk;
+            new_chunk.Initialize(Allocator::DefaultAllocator(), types);
+            chunks.push_back(std::move(new_chunk));
+        }
+
+        // 插入值
+        idx_t row_idx = current_chunk.size();
+        for (idx_t col = 0; col < values.size(); col++) {
+            current_chunk.SetValue(col, row_idx, values[col]);
+        }
+
+        current_chunk.SetCardinality(current_chunk.size() + 1);
+    }
+
+    // 全表扫描
+    void Scan(DataChunk &result) {
+        result.Reset();
+
+        if (!chunks.empty()) {
+            result.Reference(chunks[0]);
+        }
+    }
+
+    vector<LogicalType> types;
+    vector<string> column_names;
+    vector<DataChunk> chunks;
+};
+
+// 物理算子基类
+class SimpleOperator {
+public:
+    virtual ~SimpleOperator() = default;
+
+    virtual bool GetNext(DataChunk &result) = 0;
+    virtual void Reset() = 0;
+};
+
+// 表扫描算子
+class SimpleTableScan : public SimpleOperator {
+private:
+    SimpleTable &table;
+    idx_t current_chunk;
+    bool initialized;
+
+public:
+    SimpleTableScan(SimpleTable &t) : table(t), current_chunk(0), initialized(false) {
+        result.Initialize(Allocator::DefaultAllocator(), table.types);
+    }
+
+    bool GetNext(DataChunk &result) override {
+        if (!initialized) {
+            current_chunk = 0;
+            initialized = true;
+        }
+
+        if (current_chunk >= table.chunks.size()) {
+            return false;
+        }
+
+        result.Reference(table.chunks[current_chunk]);
+        current_chunk++;
+        return true;
+    }
+
+    void Reset() override {
+        current_chunk = 0;
+        initialized = false;
+    }
+
+private:
+    DataChunk result;
+};
+
+// 过滤算子
+class SimpleFilter : public SimpleOperator {
+private:
+    unique_ptr<SimpleOperator> child;
+    std::function<bool(DataChunk&, idx_t)> filter_fn;
+    DataChunk result;
+
+public:
+    SimpleFilter(unique_ptr<SimpleOperator> child_p,
+                std::function<bool(DataChunk&, idx_t)> fn)
+        : child(std::move(child_p)), filter_fn(fn) {}
+
+    bool GetNext(DataChunk &result) override {
+        result.Reset();
+
+        SelectionVector sel(STANDARD_VECTOR_SIZE);
+        idx_t approved_count = 0;
+
+        while (approved_count == 0) {
+            if (!child->GetNext(temp_chunk)) {
+                if (approved_count == 0) {
+                    return false;
+                }
+                break;
+            }
+
+            // 应用过滤器
+            for (idx_t i = 0; i < temp_chunk.size(); i++) {
+                if (filter_fn(temp_chunk, i)) {
+                    sel.set_index(approved_count++, i);
+                }
+            }
+        }
+
+        // 使用SelectionVector切片
+        result.Initialize(Allocator::DefaultAllocator(), temp_chunk.ColumnCount());
+        for (idx_t col = 0; col < temp_chunk.ColumnCount(); col++) {
+            result.data[col].Slice(temp_chunk.data[col], sel, approved_count);
+        }
+        result.SetCardinality(approved_count);
+
+        return true;
+    }
+
+    void Reset() override {
+        child->Reset();
+    }
+
+private:
+    DataChunk temp_chunk;
+};
+
+// 投影算子
+class SimpleProjection : public SimpleOperator {
+private:
+    unique_ptr<SimpleOperator> child;
+    vector<idx_t> projection_list;
+    DataChunk result;
+
+public:
+    SimpleProjection(unique_ptr<SimpleOperator> child_p,
+                    vector<idx_t> proj_list)
+        : child(std::move(child_p)),
+          projection_list(std::move(proj_list)) {}
+
+    bool GetNext(DataChunk &result) override {
+        if (!child->GetNext(temp_chunk)) {
+            return false;
+        }
+
+        // 初始化result（仅首次）
+        if (result.ColumnCount() == 0) {
+            vector<LogicalType> types;
+            for (auto col_idx : projection_list) {
+                types.push_back(temp_chunk.data[col_idx].type);
+            }
+            result.Initialize(Allocator::DefaultAllocator(), types);
+        }
+
+        // 复制选定的列
+        for (size_t i = 0; i < projection_list.size(); i++) {
+            auto col_idx = projection_list[i];
+            result.data[i].Reference(temp_chunk.data[col_idx]);
+        }
+
+        result.SetCardinality(temp_chunk.size());
+        return true;
+    }
+
+    void Reset() override {
+        child->Reset();
+    }
+
+private:
+    DataChunk temp_chunk;
+};
+
+// Hash Join算子
+class SimpleHashJoin : public SimpleOperator {
+private:
+    unique_ptr<SimpleOperator> left;
+    unique_ptr<SimpleOperator> right;
+    idx_t left_join_col;
+    idx_t right_join_col;
+    DataChunk result;
+
+    // 哈希表
+    struct HashEntry {
+        Value key;
+        DataChunk data;
+        idx_t row_idx;
+    };
+    vector<vector<HashEntry>> hash_table;
+
+    bool build_complete;
+
+public:
+    SimpleHashJoin(unique_ptr<SimpleOperator> left_p,
+                   unique_ptr<SimpleOperator> right_p,
+                   idx_t left_col,
+                   idx_t right_col)
+        : left(std::move(left_p)),
+          right(std::move(right_p)),
+          left_join_col(left_col),
+          right_join_col(right_col),
+          build_complete(false) {
+        hash_table.resize(1024);  // 简化：固定大小
+    }
+
+    bool GetNext(DataChunk &result) override {
+        // Phase 1: Build哈希表
+        if (!build_complete) {
+            BuildHashTable();
+            build_complete = true;
+        }
+
+        // Phase 2: Probe哈希表
+        DataChunk probe_chunk;
+        if (!right->GetNext(probe_chunk)) {
+            return false;
+        }
+
+        // 初始化result
+        if (result.ColumnCount() == 0) {
+            vector<LogicalType> types;
+            // 从left添加列
+            for (idx_t col = 0; col < left_types.size(); col++) {
+                types.push_back(left_types[col]);
+            }
+            // 从right添加列（排除join列）
+            for (idx_t col = 0; col < right_types.size(); col++) {
+                if (col != right_join_col) {
+                    types.push_back(right_types[col]);
+                }
+            }
+            result.Initialize(Allocator::DefaultAllocator(), types);
+        }
+
+        // Probe并构造输出
+        idx_t output_count = 0;
+        for (idx_t i = 0; i < probe_chunk.size(); i++) {
+            auto join_key = probe_chunk.GetValue(right_join_col, i);
+            auto hash = std::hash<Value>()(join_key) % hash_table.size();
+
+            // 在哈希表中查找匹配
+            for (auto &entry : hash_table[hash]) {
+                if (entry.key == join_key) {
+                    // 构造输出行
+                    for (idx_t col = 0; col < left_types.size(); col++) {
+                        result.data[col].SetValue(output_count,
+                                                   entry.data.GetValue(col, entry.row_idx));
+                    }
+
+                    idx_t result_col = left_types.size();
+                    for (idx_t col = 0; col < right_types.size(); col++) {
+                        if (col != right_join_col) {
+                            result.data[result_col++].SetValue(output_count,
+                                                               probe_chunk.GetValue(col, i));
+                        }
+                    }
+
+                    output_count++;
+                }
+            }
+        }
+
+        if (output_count == 0) {
+            return GetNext(result);  // 递归查找下一个匹配的chunk
+        }
+
+        result.SetCardinality(output_count);
+        return true;
+    }
+
+    void Reset() override {
+        left->Reset();
+        right->Reset();
+        build_complete = false;
+    }
+
+private:
+    void BuildHashTable() {
+        DataChunk build_chunk;
+        while (left->GetNext(build_chunk)) {
+            for (idx_t i = 0; i < build_chunk.size(); i++) {
+                auto key = build_chunk.GetValue(left_join_col, i);
+                auto hash = std::hash<Value>()(key) % hash_table.size();
+
+                hash_table[hash].push_back({key, build_chunk, i});
+            }
+        }
+    }
+
+    vector<LogicalType> left_types;
+    vector<LogicalType> right_types;
+};
+
+// 聚合算子
+class SimpleHashAggregate : public SimpleOperator {
+private:
+    unique_ptr<SimpleOperator> child;
+    vector<idx_t> group_by_cols;
+    bool is_count_agg;
+
+    // 聚合状态
+    struct AggregateGroup {
+        vector<Value> group_values;
+        idx_t count;
+    };
+    unordered_map<string, AggregateGroup> groups;
+
+    bool scan_complete;
+    idx_t current_group;
+
+public:
+    SimpleHashAggregate(unique_ptr<SimpleOperator> child_p,
+                       vector<idx_t> group_cols,
+                       bool count = true)
+        : child(std::move(child_p)),
+          group_by_cols(std::move(group_cols)),
+          is_count_agg(count),
+          scan_complete(false),
+          current_group(0) {}
+
+    bool GetNext(DataChunk &result) override {
+        // Phase 1: 构建聚合
+        if (!scan_complete) {
+            BuildAggregation();
+            scan_complete = true;
+        }
+
+        // Phase 2: 输出结果
+        if (current_group >= groups.size()) {
+            return false;
+        }
+
+        // 初始化result（仅首次）
+        if (result.ColumnCount() == 0) {
+            vector<LogicalType> types;
+            for (auto col_idx : group_by_cols) {
+                types.push_back(child_types[col_idx]);
+            }
+            if (is_count_agg) {
+                types.push_back(LogicalType::BIGINT);
+            }
+            result.Initialize(Allocator::DefaultAllocator(), types);
+        }
+
+        // 输出当前组
+        auto it = groups.begin();
+        std::advance(it, current_group);
+
+        for (size_t i = 0; i < group_by_cols.size(); i++) {
+            result.data[i].SetValue(0, it->second.group_values[i]);
+        }
+
+        if (is_count_agg) {
+            result.data[group_by_cols.size()].SetValue(
+                0, Value::BIGINT(it->second.count));
+        }
+
+        result.SetCardinality(1);
+        current_group++;
+
+        return true;
+    }
+
+    void Reset() override {
+        child->Reset();
+        groups.clear();
+        scan_complete = false;
+        current_group = 0;
+    }
+
+private:
+    void BuildAggregation() {
+        DataChunk input;
+        while (child->GetNext(input)) {
+            for (idx_t i = 0; i < input.size(); i++) {
+                // 构造group key
+                string group_key;
+                for (auto col_idx : group_by_cols) {
+                    group_key += input.GetValue(col_idx, i).ToString();
+                    group_key += "|";
+                }
+
+                // 查找或创建组
+                if (groups.find(group_key) == groups.end()) {
+                    AggregateGroup group;
+                    for (auto col_idx : group_by_cols) {
+                        group.group_values.push_back(input.GetValue(col_idx, i));
+                    }
+                    group.count = 0;
+                    groups[group_key] = std::move(group);
+                }
+
+                // 更新聚合
+                if (is_count_agg) {
+                    groups[group_key].count++;
+                }
+            }
+        }
+    }
+
+    vector<LogicalType> child_types;
+};
+
+} // namespace duckdb
+```
+
+### 14.3 使用示例
+
+```cpp
+// 创建测试表
+SimpleTable students({
+    LogicalType::INTEGER,    // id
+    LogicalType::VARCHAR,    // name
+    LogicalType::INTEGER,    // class_id
+    LogicalType::DOUBLE      // score
+}, {"id", "name", "class_id", "score"});
+
+// 插入数据
+students.Insert({Value::INTEGER(1), Value("Alice"), Value::INTEGER(1), Value::DOUBLE(95.5)});
+students.Insert({Value::INTEGER(2), Value("Bob"), Value::INTEGER(2), Value::DOUBLE(87.3)});
+students.Insert({Value::INTEGER(3), Value("Charlie"), Value::INTEGER(1), Value::DOUBLE(92.1)});
+
+// 构建查询计划
+// SELECT class_id, COUNT(*) FROM students WHERE score > 90 GROUP BY class_id
+
+auto scan = make_unique<SimpleTableScan>(students);
+
+auto filter = make_unique<SimpleFilter>(
+    std::move(scan),
+    [](DataChunk &chunk, idx_t row) {
+        auto score = chunk.GetValue(3, row);
+        return !score.IsNull() && score.GetValue<double>() > 90.0;
+    }
+);
+
+auto aggregate = make_unique<SimpleHashAggregate>(
+    std::move(filter),
+    {2},  // GROUP BY class_id (column index 2)
+    true  // COUNT(*)
+);
+
+// 执行查询
+DataChunk result;
+while (aggregate->GetNext(result)) {
+    printf("class_id: %s, count: %s\n",
+           result.GetValue(0, 0).ToString().c_str(),
+           result.GetValue(1, 0).ToString().c_str());
+}
+```
+
+### 14.4 扩展练习
+
+1. **完善Filter算子**
+   - 支持AND/OR组合条件
+   - 支持比较运算符（<, >, =等）
+
+2. **完善Join算子**
+   - 支持多列Join条件
+   - 支持LEFT OUTER JOIN
+   - 使用更高效的哈希表实现
+
+3. **添加更多聚合函数**
+   - SUM, AVG, MIN, MAX
+   - 支持多列GROUP BY
+
+4. **添加投影优化**
+   - 只读取需要的列
+   - 延迟计算表达式
+
+**第二周总结：**
+
+| 主题 | 核心概念 | 关键文件 |
+|------|----------|----------|
+| 物理计划 | PhysicalOperator, Pipeline | `src/execution/physical_operator.hpp` |
+| TableScan | RowGroup, Column扫描 | `src/execution/operator/scan/` |
+| Filter | SelectionVector, 向量化过滤 | `src/execution/operator/filter/` |
+| Hash Join | Build/Probe阶段, 哈希表 | `src/execution/operator/join/` |
+| Aggregation | 哈希聚合, 分组, 聚合函数 | `src/execution/operator/aggregate/` |
+
+**下周预告：**
+第三周我们将学习查询优化器，了解如何通过Filter Pushdown、Join Order优化等技术提升查询性能。
 
 ---
 

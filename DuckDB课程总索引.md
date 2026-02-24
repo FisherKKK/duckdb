@@ -239,6 +239,379 @@
 
 ---
 
+#### 1️⃣4️⃣ [DuckDB高级课程_CMake编译与优化技巧.md](./DuckDB高级课程_CMake编译与优化技巧.md) 🚀
+**高级进阶课程**
+- 第一部分：CMake构建系统详解
+  - 构建系统架构概览
+  - 核心CMakeLists文件解析
+  - Unity Build系统
+  - Makefile接口与常用命令
+  - 编译器标志详解
+  - 跨平台编译配置
+- 第二部分：代码架构实现细节
+  - 模块化架构
+  - 类型系统架构
+  - 向量化执行架构
+  - 执行算子架构
+- 第三部分：编译优化技巧
+  - 编译时优化
+  - 模板元编程优化
+  - 内存优化技巧
+  - SIMD优化
+  - 缓存优化
+  - 查询优化技巧
+- 第四部分：性能分析与调优
+  - 性能分析工具（perf、Instruments、Valgrind）
+  - 查询性能分析
+  - 常见性能问题与解决
+  - 高级性能调优
+- 第五部分：最佳实践总结
+
+**适用场景:** 深入理解构建系统、性能优化和底层实现细节
+
+---
+
+#### 1️⃣5️⃣ [DuckDB高级课程_扩展系统开发.md](./DuckDB高级课程_扩展系统开发.md) 🔌
+**扩展开发实战课程**
+- 第一部分：扩展系统架构
+  - 扩展类型分类（In-tree / Out-of-tree）
+  - 扩展加载机制
+  - 扩展入口点详解
+- 第二部分：创建自定义扩展
+  - 项目结构与CMakeLists.txt
+  - 最小化扩展示例
+  - 使用扩展模板
+- 第三部分：高级扩展功能
+  - 标量函数开发
+  - 聚合函数开发
+  - 表函数开发
+  - 复制函数开发
+- 第四部分：构建与分发
+  - 本地构建
+  - 跨平台构建（Linux/macOS/Windows）
+  - 版本控制与签名
+  - 发布扩展
+- 第五部分：测试与调试
+  - 单元测试
+  - SQL逻辑测试
+  - 调试技巧
+- 第六部分：最佳实践
+  - 性能优化
+  - 错误处理
+  - 文档编写
+- 第七部分：实际案例
+  - IP地址函数扩展
+  - 机器学习扩展
+
+**适用场景:** 开发自定义扩展、贡献DuckDB生态系统
+
+---
+
+#### 1️⃣6️⃣ [DuckDB大师课程_从零实现数据库系统.md](./DuckDB大师课程_从零实现数据库系统.md) 🏆
+**从零实现数据库系统（大师课程）**
+- 第一阶段：存储引擎实现
+  - 模块1：页面管理器（Page Manager）
+  - 模块2：缓冲池管理器（Buffer Pool - LRU）
+  - 模块3：B+树索引实现
+- 第二阶段：执行引擎实现
+  - 模块4：SQL解析器（递归下降）
+  - 模块5：查询执行引擎（向量化）
+- 第三阶段：事务系统实现
+  - 模块6：并发控制（MVCC）
+  - 模块7：WAL预写日志
+- 第四阶段：项目整合
+  - 完整的Mini-DB实现
+  - 各模块集成测试
+
+**课程特点：**
+- ✅ 从零开始，完整实现
+- ✅ 生产级代码质量
+- ✅ 参考DuckDB架构
+- ✅ 可直接运行的代码
+
+**适用场景:** 深入学习数据库底层实现、准备面试、研究数据库内核
+
+---
+
+#### 1️⃣7️⃣ [DuckDB高级课程_查询优化器深度解析.md](./DuckDB高级课程_查询优化器深度解析.md) ⚡
+**查询优化器深度解析专题课程**
+- 第一部分：优化器架构
+  - 优化器执行流程
+  - 优化规则分类
+  - 优化规则执行顺序
+- 第二部分：表达式优化
+  - 常量折叠
+  - 表达式简化
+  - 公共子表达式消除（CSE）
+- 第三部分：逻辑优化
+  - Filter Pushdown
+  - Join Elimination
+  - Limit Pushdown
+- 第四部分：Join Order优化
+  - 动态规划算法
+  - Query Graph
+  - 代价模型
+- 第五部分：统计信息
+  - 统计信息收集
+  - HyperLogLog基数估计
+  - 选择性估计
+- 第六部分：实践项目
+  - 实现Filter Pushdown
+  - 实现Join Order优化器
+
+**适用场景:** 深入学习查询优化器原理、数据库性能调优、实现自定义优化规则
+
+---
+
+#### 1️⃣8️⃣ [DuckDB深度课程_并发控制与事务处理.md](./DuckDB深度课程_并发控制与事务处理.md) 🔐
+**并发控制与事务处理专题课程**
+- 第一部分：事务基础
+  - ACID特性详解
+  - 事务隔离级别
+  - 并发问题（脏读、不可重复读、幻读）
+- 第二部分：MVCC实现
+  - MVCC基本概念与架构
+  - 版本链实现
+  - 可见性判断逻辑
+- 第三部分：并发控制机制
+  - 锁机制（共享锁、排他锁）
+  - 写偏问题
+  - 乐观并发控制
+- 第四部分：WAL与恢复
+  - Write-Ahead Log实现
+  - 崩溃恢复机制
+  - Checkpoint机制
+- 第五部分：性能优化
+  - 并发性能优化技巧
+  - 事务吞吐量优化
+  - 批量提交与组提交
+- 第六部分：实践项目
+  - 实现简单MVCC系统
+  - 并发场景测试
+
+**适用场景:** 深入学习事务处理、并发编程、数据库ACID实现
+
+---
+
+#### 1️⃣8️⃣ [DuckDB深度课程_列存储与数据压缩.md](./DuckDB深度课程_列存储与数据压缩.md) 📦
+**列存储与数据压缩专题课程**
+- 第一部分：列存储架构
+  - 行存储 vs 列存储对比
+  - DuckDB列存储架构
+  - RowGroup管理
+- 第二部分：压缩算法
+  - BitPacking（位打包）
+  - FOR编码（Frame-Of-Reference）
+  - RLE（行程编码）
+  - Dictionary编码
+- 第三部分：高级压缩算法
+  - Gorillas算法（浮点数压缩）
+  - Chimp算法（改进的浮点数压缩）
+- 第四部分：存储优化
+  - 自适应压缩选择
+  - 分区裁剪
+  - 延迟物化
+- 第五部分：实践项目
+  - 实现压缩算法测试
+  - 性能基准测试
+
+**适用场景:** 深入学习存储引擎、数据压缩、列式数据库实现
+
+---
+
+#### 1️⃣9️⃣ [DuckDB深度课程_向量化执行引擎.md](./DuckDB深度课程_向量化执行引擎.md) ⚡
+**向量化执行引擎深度解析**
+- 第一部分：向量化基础
+  - 向量化 vs 行式执行
+  - DataChunk 结构详解
+  - Vector 内部实现
+- 第二部分：Vector 类型系统
+  - FLAT_VECTOR（平面向量）
+  - CONSTANT_VECTOR（常量向量）
+  - DICTIONARY_VECTOR（字典向量）
+  - SEQUENCE_VECTOR（序列向量）
+- 第三部分：零拷贝优化
+  - SelectionVector 机制
+  - ValidityMask NULL值处理
+  - 引用语义与数据共享
+- 第四部分：SIMD 优化
+  - 向量化操作与 SIMD
+  - 缓存友好设计
+  - 批处理大小优化
+- 第五部分：实践项目
+  - 实现简单向量化算子
+  - SIMD 性能测试
+
+**适用场景:** 深入学习向量化执行引擎、SIMD优化、高性能计算
+
+---
+
+#### 2️⃣0️⃣ [DuckDB深度课程_执行算子实现详解.md](./DuckDB深度课程_执行算子实现详解.md) 🔧
+**执行算子实现详解**
+- 第一部分：PhysicalOperator 基类
+  - Execute() 接口
+  - State 管理模式
+  - 算子类型分类
+- 第二部分：Source 算子
+  - TableScanPhysicalOperator
+  - PhysicalTableScan 实现细节
+- 第三部分：Operator 算子
+  - FilterPhysicalOperator
+  - ProjectionPhysicalOperator
+  - PhysicalFilter 实现
+- 第四部分：Sink 算子
+  - HashJoinPhysicalOperator
+  - PhysicalHashJoin 实现细节
+  - HashAggregatePhysicalOperator
+  - OrderByPhysicalOperator
+- 第五部分：Pipeline 执行模型
+  - PipelineExecutor 工作原理
+  - Push-based vs Pull-based
+  - 并行执行
+- 第六部分：实践项目
+  - 实现自定义 PhysicalOperator
+  - 算子性能测试
+
+**适用场景:** 深入学习执行算子、Pipeline执行、查询执行引擎
+
+---
+
+#### 2️⃣1️⃣ [DuckDB深度课程_Planner与Binder.md](./DuckDB深度课程_Planner与Binder.md) 📋
+**Planner与Binder深度解析**
+- 第一部分：SQL 处理流程
+  - Parser → Transformer → Binder
+  - Binder 职责与工作流程
+  - Planner 规划查询计划
+- 第二部分：Binder 符号解析
+  - BindContext 上下文管理
+  - 列名绑定
+  - 表名解析
+  - 子查询绑定
+- 第三部分：LogicalOperator 层次结构
+  - LogicalGet
+  - LogicalFilter
+  - LogicalProjection
+  - LogicalJoin
+  - LogicalAggregate
+- 第四部分：表达式绑定
+  - Bound_* 表达式类型
+  - 类型推导
+  - 函数绑定
+- 第五部分：CTE 与子查询处理
+  - CTE 物化策略
+  - 相关子查询处理
+  - 子查询去相关化
+- 第六部分：实践项目
+  - 实现简单 Binder
+  - 实现逻辑计划生成
+
+**适用场景:** 深入学习SQL处理流程、符号绑定、查询规划
+
+---
+
+#### 2️⃣2️⃣ [DuckDB深度课程_类型系统实现.md](./DuckDB深度课程_类型系统实现.md) 🎨
+**类型系统实现详解**
+- 第一部分：类型系统概览
+  - LogicalType vs PhysicalType
+  - 类型层次结构
+  - 类型转换机制
+- 第二部分：基础类型实现
+  - 整数类型（TINYINT, SMALLINT, INTEGER, BIGINT, HUGEINT）
+  - 浮点类型（FLOAT, DOUBLE）
+  - 布尔类型（BOOLEAN）
+- 第三部分：字符串类型
+  - VARCHAR 实现
+  - string_t 结构
+  - 小字符串内联优化
+  - BLOB 类型
+- 第四部分：DECIMAL 类型
+  - 精度与比例
+  - 存储布局
+  - 运算实现
+- 第五部分：复合类型
+  - LIST 类型
+  - STRUCT 类型
+  - ARRAY 类型
+  - MAP 类型
+- 第六部分：实践项目
+  - 实现自定义类型
+  - 类型转换测试
+
+**适用场景:** 深入学习类型系统、数据表示、类型转换
+
+---
+
+#### 2️⃣3️⃣ [DuckDB深度课程_函数系统详解.md](./DuckDB深度课程_函数系统详解.md) ⚙️
+**函数系统详解**
+- 第一部分：函数系统概览
+  - ScalarFunction（标量函数）
+  - AggregateFunction（聚合函数）
+  - TableFunction（表函数）
+  - ScalarFunctionSet 和重载
+- 第二部分：标量函数
+  - 函数注册机制
+  - 向量化执行
+  - 参数验证
+  - 返回值推导
+- 第三部分：聚合函数
+  - AggregateState 状态管理
+  - Update 函数
+  - Combine 函数（分布式）
+  - Finalize 函数
+  - 简单聚合 vs 有序聚合
+- 第四部分：表函数
+  - TableFunctionInfo
+  - 表函数执行流程
+  - 参数化表函数
+  - Pragma 函数
+- 第五部分：函数查找与绑定
+  - 函数名解析
+  - 类型匹配
+  - 最佳函数选择
+  - 隐式类型转换
+- 第六部分：实践项目
+  - 实现自定义标量函数
+  - 实现自定义聚合函数
+
+**适用场景:** 深入学习函数系统、扩展开发、UDF实现
+
+---
+
+#### 2️⃣4️⃣ [DuckDB深度课程_Catalog元数据管理.md](./DuckDB深度课程_Catalog元数据管理.md) 🗂️
+**Catalog元数据管理详解**
+- 第一部分：Catalog 系统架构
+  - Catalog 层次结构
+  - DatabaseCatalog
+  - SchemaCatalogEntry
+- 第二部分：表元数据
+  - TableCatalogEntry
+  - 列定义（ColumnDefinition）
+  - 约束（Constraint）
+  - 索引（Index）
+- 第三部分：视图与序列
+  - ViewCatalogEntry
+  - SequenceCatalogEntry
+  - 依赖管理
+- 第四部分：函数元数据
+  - ScalarFunctionCatalogEntry
+  - 函数重载管理
+- 第五部分：依赖管理
+  - DependencyManager
+  - 级联删除与更新
+  - 依赖图构建
+  - 导出顺序计算
+- 第六部分：MVCC 支持
+  - CatalogEntry 版本链
+  - 事务可见性
+  - DROP 与 ROLLBACK 处理
+- 第七部分：实践项目
+  - 实现简单 Catalog
+  - 依赖管理测试
+
+**适用场景:** 深入学习元数据管理、事务性元数据、Catalog实现
+
+---
+
 ## 🗺️ 快速导航
 
 ### 按主题查找
@@ -301,6 +674,34 @@
 - **性能优化方向：** Day 16-21
 - **存储引擎方向：** Day 22-28
 - **查询处理方向：** Day 8-14
+
+### 🏆 大师课程（10周）
+适合想从零实现数据库系统的开发者：
+**[DuckDB大师课程_从零实现数据库系统.md](./DuckDB大师课程_从零实现数据库系统.md)**
+
+```
+Week 1-2: 存储引擎
+  ├── 页面管理器
+  ├── 缓冲池（LRU）
+  └── B+树索引
+
+Week 3-4: 执行引擎
+  ├── SQL解析器
+  ├── 查询计划器
+  └── 向量化执行
+
+Week 5-6: 事务系统
+  ├── MVCC并发控制
+  └── WAL预写日志
+
+Week 7-8: 优化器
+  ├── 逻辑优化
+  └── 物理优化
+
+Week 9-10: 高级特性
+  ├── 压缩算法
+  └── 并行执行
+```
 
 ---
 
